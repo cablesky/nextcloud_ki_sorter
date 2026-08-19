@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  nextcloud-ki-sorter:
+    build: .
+    container_name: nextcloud-ki-sorter
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - NEXTCLOUD_URL=${NEXTCLOUD_URL:-https://nextcloud.example.com}
+      - NEXTCLOUD_USER=${NEXTCLOUD_USER}
+      - NEXTCLOUD_PASSWORD=${NEXTCLOUD_PASSWORD}
+      - TARGET_ROOT_FOLDER=${TARGET_ROOT_FOLDER:-/Dokumente}
+      - INBOX_FOLDER=${INBOX_FOLDER:-/Posteingang}
+    # Falls Nextcloud im selben Docker Compose / Netzwerk läuft, erstelle ein gemeinsames Netzwerk:
+    # networks:
+    #   - nextcloud-network
+
+# networks:
+#   nextcloud-network:
+#     external: true

@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>nextcloud-ki-sorter</Name>
+  <Repository>nextcloud-ki-sorter:latest</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Automatisierte OCR-Verarbeitung (ocrmypdf) und Google Gemini KI-Dokumentensortierung für Nextcloud per WebDAV.</Overview>
+  <Category>Tools: Productivity:</Category>
+  <WebUI>http://[IP]:[PORT:8000]/</WebUI>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/nextcloud/official-architecture/master/graphics/logo/nextcloud-logo-icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Webhooks Port" Target="8000" Default="8000" Mode="tcp" Description="HTTP Webhook Port für Nextcloud Workflow Callbacks" Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+  <Config Name="GEMINI_API_KEY" Target="GEMINI_API_KEY" Default="" Description="Dein Google Gemini API Key" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="GEMINI_MODEL" Target="GEMINI_MODEL" Default="gemini-2.5-flash" Description="Google Gemini Modell (z.B. gemini-2.5-flash)" Type="Variable" Display="always" Required="true" Mask="false">gemini-2.5-flash</Config>
+  <Config Name="NEXTCLOUD_URL" Target="NEXTCLOUD_URL" Default="https://nextcloud.example.com" Description="Vollständige URL deiner Nextcloud Instanz" Type="Variable" Display="always" Required="true" Mask="false">https://nextcloud.example.com</Config>
+  <Config Name="NEXTCLOUD_USER" Target="NEXTCLOUD_USER" Default="hermes" Description="Nextcloud Benutzername" Type="Variable" Display="always" Required="true" Mask="false">hermes</Config>
+  <Config Name="NEXTCLOUD_PASSWORD" Target="NEXTCLOUD_PASSWORD" Default="" Description="Nextcloud App-Passwort" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="TARGET_ROOT_FOLDER" Target="TARGET_ROOT_FOLDER" Default="/Dokumente" Description="Ziel-Stammordner in Nextcloud" Type="Variable" Display="always" Required="true" Mask="false">/Dokumente</Config>
+  <Config Name="INBOX_FOLDER" Target="INBOX_FOLDER" Default="/Posteingang" Description="Posteingangs-Ordner in Nextcloud" Type="Variable" Display="always" Required="true" Mask="false">/Posteingang</Config>
+</Container>
