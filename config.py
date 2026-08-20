@@ -16,6 +16,7 @@ class Config:
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
     OLLAMA_API_KEY: str = os.getenv("OLLAMA_API_KEY", "")
+    OLLAMA_TIMEOUT: int = int(os.getenv("OLLAMA_TIMEOUT", "180"))
 
     # Nextcloud Settings
     NEXTCLOUD_URL: str = os.getenv("NEXTCLOUD_URL", "https://nextcloud.example.com").rstrip("/")

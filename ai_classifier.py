@@ -3,6 +3,7 @@ import re
 import abc
 import json
 import logging
+from datetime import datetime
 from typing import Dict, List
 from pydantic import BaseModel, Field
 from config import Config
@@ -35,14 +36,14 @@ def sanitize_target_folder(folder: str, default_root: str = Config.TARGET_ROOT_F
 
 class ClassificationResult(BaseModel):
     target_folder: str = Field(
-        description="Der am besten passende Zielordner aus der vorgegebenen Ordnerstruktur (z. B. /Dokumente/Versicherungen/Auto). Falls keiner passt, wähle den nächsthöheren passenden Hauptordner."
+        description="Der am besten passende Zielordner aus der vorgegebenen Ordnerstruktur."
     )
     suggested_filename: str = Field(
-        description="Der neu formatierte Dateiname mit .pdf Endung. Er MUSS mit dem Datum im Format YYYY-MM (Jahr und Monat, OHNE Tag!) beginnen (z. B. YYYY-MM_Absender_Dokumententyp.pdf)."
+        description="Der neu formatierte Dateiname im Format YYYY-MM_Absender_Typ.pdf."
     )
     reasoning: str = Field(
-        default="Lokale KI Einsortierung",
-        description="Kurze Erläuterung (1-2 Sätze), warum dieser Ordner und Dateiname gewählt wurden."
+        default="Dokumenten-Klassifizierung",
+        description="Kurze Begründung für die Einsortierung."
     )
 
     def sanitize(self, original_filename: str) -> "ClassificationResult":
@@ -65,8 +66,10 @@ class BaseAIClassifier(abc.ABC):
     def _build_folder_overview(self, folder_structure: Dict[str, List[str]]) -> str:
         folder_overview_lines = []
         for folder_path, sample_files in folder_structure.items():
-            samples_str = ", ".join(sample_files) if sample_files else "keine Dateien vorhanden"
-            folder_overview_lines.append(f"- Ordner: {folder_path}\n  Beispiel-Dateinamen: [{samples_str}]")
+            # Max 2 Beispieldateien pro Ordner für minimale Token-Nutzung
+            samples = sample_files[:2] if sample_files else []
+            samples_str = ", ".join(samples) if samples else "keine"
+            folder_overview_lines.append(f"- {folder_path} (Beispiele: {samples_str})")
         return "\n".join(folder_overview_lines)
 
 class GeminiClassifier(BaseAIClassifier):
@@ -90,55 +93,60 @@ class GeminiClassifier(BaseAIClassifier):
         folder_overview = self._build_folder_overview(folder_structure)
 
         prompt = f"""
-Du bist ein präziser Assistent zur Dokumentenarchivierung in Nextcloud.
-Deine Aufgabe ist es, ein hochgeladenes Dokument anhand seines Inhalts in die bestehende Nextcloud-Ordnerstruktur unter '{Config.TARGET_ROOT_FOLDER}' einzusortieren und einen passenden Dateinamen zu generieren.
+Sortiere dieses Dokument in die Nextcloud-Ordnerstruktur unter '{Config.TARGET_ROOT_FOLDER}' ein.
 
-### Aktueller Dateiname:
-{current_filename}
+Aktueller Dateiname: {current_filename}
 
-### Verfügbare Nextcloud-Ordnerstruktur und Beispieldateien:
+Verfügbare Zielordner:
 {folder_overview}
 
-### Dokumenten-Inhalt (OCR Text):
+Dokumententext (OCR):
 ---
 {document_text[:6000]}
 ---
 
-### Regeln für die Einsortierung und Benennung:
-1. Wähle den BESTEN bestehenden Ordner aus der obigen Liste.
-2. Das Datum am Anfang des Dateinamens MUSS IMMER im Format YYYY-MM (nur Jahr und Monat, OHNE Tag!) formatiert werden (z. B. '2024-05').
-3. Generiere den neuen Dateinamen nach dem Schema: 'YYYY-MM_Absender_Betreff.pdf' (z. B. '2024-05_HUK-Coburg_Beitragsrechnung.pdf').
-4. Das Standardmuster lautet IMMER: 'YYYY-MM_Absender_Dokumententyp.pdf'.
-5. Gib die Antwort im vorgegebenen JSON-Schema zurück.
+Regeln:
+1. Wähle den besten Zielordner aus der Liste. Bevorzuge spezifische Unterordner (z.B. /Dokumente/Gutscheine).
+2. Generiere einen Dateinamen im Format 'YYYY-MM_Absender_Typ.pdf' (z.B. '2024-05_Lidl_Gutschein.pdf'). Verwende kurze Firmennamen ohne GmbH/AG.
+3. Gib das Ergebnis im vorgegebenen JSON-Schema zurück.
 """
 
         logger.info(f"Sende Anfrage an Google Gemini ({self.model})...")
         
-        try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=ClassificationResult,
-                    temperature=0.1,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+        import time
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=ClassificationResult,
+                        temperature=0.1,
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+                    )
                 )
-            )
-            
-            result_json = response.text
-            result = ClassificationResult.model_validate_json(result_json).sanitize(current_filename)
-            logger.info(f"Gemini Ergebnis: Ordner='{result.target_folder}', Name='{result.suggested_filename}'")
-            logger.info(f"KI-Begründung: {result.reasoning}")
-            return result
+                
+                result_json = response.text
+                result = ClassificationResult.model_validate_json(result_json).sanitize(current_filename)
+                logger.info(f"Gemini Ergebnis: Ordner='{result.target_folder}', Name='{result.suggested_filename}'")
+                logger.info(f"KI-Begründung: {result.reasoning}")
+                return result
 
-        except Exception as e:
-            logger.error(f"Fehler bei der Anfrage an Gemini: {e}")
-            return ClassificationResult(
-                target_folder=Config.TARGET_ROOT_FOLDER,
-                suggested_filename=current_filename,
-                reasoning=f"Fehler bei Gemini-Klassifizierung: {str(e)}"
-            ).sanitize(current_filename)
+            except Exception as e:
+                err_str = str(e)
+                if ("503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str) and attempt < max_retries:
+                    logger.warning(f"Gemini Server kurzzeitig überlastet (Versuch {attempt}/{max_retries}). Warte 120s (2 Min.) und versuche erneut...")
+                    time.sleep(120)
+                    continue
+
+                logger.error(f"Fehler bei der Anfrage an Gemini: {e}")
+                return ClassificationResult(
+                    target_folder=Config.TARGET_ROOT_FOLDER,
+                    suggested_filename=current_filename,
+                    reasoning=f"Fehler bei Gemini-Klassifizierung: {str(e)}"
+                ).sanitize(current_filename)
 
 class OllamaClassifier(BaseAIClassifier):
     """Modul zur Dokumenten-Klassifizierung mittels lokaler Ollama-Instanz."""
@@ -160,23 +168,30 @@ class OllamaClassifier(BaseAIClassifier):
         folder_overview = self._build_folder_overview(folder_structure)
 
         prompt = f"""
-Sortiere dieses Dokument in die Nextcloud-Struktur ein.
-Dateiname: {current_filename}
+Sortiere dieses Dokument in die Nextcloud-Ordnerstruktur ein.
 
-Verfügbare Ordner:
+Aktueller Dateiname: {current_filename}
+
+Verfügbare Zielordner:
 {folder_overview}
 
-Dokumententext:
-{document_text[:3000]}
+Dokumententext (OCR):
+---
+{document_text[:3500]}
+---
 
 Regeln:
-1. Wähle den besten Zielordner aus der Liste.
-2. Dateiname MUSS im Format 'YYYY-MM_Absender_Typ.pdf' sein (nur Jahr-Monat!).
-3. Gib AUSSCHLIESSLICH ein valides JSON-Objekt ohne Erklärungen oder Markdown-Formatierung aus!
-JSON-Schema:
-{{"target_folder": "string", "suggested_filename": "string", "reasoning": "string"}}
+1. Wähle den besten Zielordner aus der Liste oben. Bevorzuge spezifische Unterordner (z.B. /Dokumente/Gutscheine) vor dem Hauptordner.
+2. Erstelle einen Dateinamen im Format 'YYYY-MM_Absender_Typ.pdf' (z.B. '2024-05_Lidl_Gutschein.pdf'). Verwende NUR kurze Firmennamen (z.B. 'Lidl' statt 'Lidl Digital GmbH').
+3. Gib das Ergebnis als JSON zurück:
+{{
+  "target_folder": "/Dokumente/Gutscheine",
+  "suggested_filename": "2024-05_Lidl_Gutschein.pdf",
+  "reasoning": "Gutschein von Lidl"
+}}
 """
 
+        json_schema = ClassificationResult.model_json_schema()
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -187,30 +202,55 @@ JSON-Schema:
             "messages": [
                 {
                     "role": "system", 
-                    "content": "Du bist ein extrem schneller Assistent. Gib AUSSCHLIESSLICH das angeforderte JSON-Objekt zurück. KEINE Erklärungen oder Begründungen."
+                    "content": "Du bist ein präziser Assistent zur Dokumentenklassifizierung. Antworte AUSSCHLIESSLICH mit dem geforderten JSON-Objekt."
                 },
                 {"role": "user", "content": prompt}
             ],
-            "format": "json",
+            "format": json_schema,
             "stream": False,
             "options": {
                 "temperature": 0.1,
-                "num_predict": 120
+                "num_predict": 150
             }
         }
 
-        logger.info(f"Sende Anfrage an lokale KI (Ollama model={self.model} url={self.base_url})...")
+        logger.info(f"Ollama Dokumententext-Länge: {len(document_text)} Zeichen. Ausschnitt: {repr(document_text[:150])}")
+        logger.info(f"Sende Anfrage an lokale KI (Ollama model={self.model} url={self.base_url} timeout={Config.OLLAMA_TIMEOUT}s)...")
         try:
-            res = requests.post(url, json=payload, headers=headers, timeout=60)
+            res = requests.post(url, json=payload, headers=headers, timeout=Config.OLLAMA_TIMEOUT)
+            if res.status_code == 400 and "format" in res.text.lower():
+                logger.warning("Ollama akzeptierte kein JSON-Schema in 'format'. Wechsle auf 'format': 'json'.")
+                payload["format"] = "json"
+                res = requests.post(url, json=payload, headers=headers, timeout=Config.OLLAMA_TIMEOUT)
+
             if res.status_code != 200:
                 raise Exception(f"Ollama API antwortete mit Status {res.status_code}: {res.text}")
             
             res_data = res.json()
             content = res_data.get("message", {}).get("content", "").strip()
+            logger.info(f"Ollama Rohantwort ({len(content)} Zeichen): {content}")
+
             if content.startswith("```"):
                 content = content.strip("`").removeprefix("json").strip()
             
-            result = ClassificationResult.model_validate_json(content).sanitize(current_filename)
+            if not content or content == "{}":
+                raise ValueError(f"Ollama hat ein leeres JSON-Objekt '{{}}' zurückgegeben (Modell: {self.model}).")
+
+            # 1. Versuch: Strikte Pydantic Validierung
+            try:
+                result = ClassificationResult.model_validate_json(content).sanitize(current_filename)
+            except Exception as parse_err:
+                logger.warning(f"Pydantic Validierung fehlgeschlagen ({parse_err}). Versuche flexibles JSON-Parsing...")
+                data = json.loads(content)
+                tf = data.get("target_folder") or data.get("targetFolder") or data.get("folder") or Config.TARGET_ROOT_FOLDER
+                sf = data.get("suggested_filename") or data.get("suggestedFilename") or data.get("filename") or current_filename
+                re_val = data.get("reasoning") or data.get("reason") or "Klassifiziert durch lokale KI (Ollama)"
+                result = ClassificationResult(
+                    target_folder=tf,
+                    suggested_filename=sf,
+                    reasoning=re_val
+                ).sanitize(current_filename)
+
             if not result.reasoning:
                 result.reasoning = "Klassifiziert durch lokale KI (Ollama)"
             logger.info(f"Ollama Ergebnis: Ordner='{result.target_folder}', Name='{result.suggested_filename}'")
