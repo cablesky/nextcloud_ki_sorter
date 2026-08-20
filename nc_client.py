@@ -53,22 +53,52 @@ class NextcloudClient:
             raise Exception(f"Fehler beim Upload ({response.status_code}): {response.text}")
         return True
 
-    def move_file(self, source_nc_path: str, target_nc_path: str) -> bool:
-        """Verschiebt/Benennt eine Datei in Nextcloud per WebDAV MOVE um."""
+    def file_exists(self, nc_path: str) -> bool:
+        """Prüft per WebDAV PROPFIND, ob eine Datei oder ein Ordner in Nextcloud existiert."""
+        url = self._full_url(nc_path)
+        try:
+            res = requests.request("PROPFIND", url, auth=self.auth, headers={"Depth": "0"})
+            return res.status_code == 207
+        except Exception:
+            return False
+
+    def resolve_filename_collision(self, target_nc_path: str) -> str:
+        """Falls im Zielpfad bereits eine Datei existiert, wird ein Suffix (_1, _2, ...) angehängt."""
+        if not self.file_exists(target_nc_path):
+            return target_nc_path
+            
+        dir_name = os.path.dirname(target_nc_path)
+        file_name = os.path.basename(target_nc_path)
+        name_part, ext_part = os.path.splitext(file_name)
+        
+        counter = 1
+        while counter < 100:
+            candidate_filename = f"{name_part}_{counter}{ext_part}"
+            candidate_path = f"{dir_name}/{candidate_filename}" if dir_name else candidate_filename
+            if not self.file_exists(candidate_path):
+                logger.info(f"Dateikollision in Nextcloud erkannt. Neuer Zielpfad: {candidate_path}")
+                return candidate_path
+            counter += 1
+            
+        return target_nc_path
+
+    def move_file(self, source_nc_path: str, target_nc_path: str) -> Tuple[bool, str]:
+        """Verschiebt/Benennt eine Datei in Nextcloud per WebDAV MOVE um und behebt ggf. Dateikollisionen. Gibt (True, finaler_pfad) zurück."""
+        final_target_path = self.resolve_filename_collision(target_nc_path)
         source_url = self._full_url(source_nc_path)
-        target_url = self._full_url(target_nc_path)
+        target_url = self._full_url(final_target_path)
         
         # Stelle sicher, dass Ziel-Ordner existieren
-        target_dir = os.path.dirname(target_nc_path)
+        target_dir = os.path.dirname(final_target_path)
         self.ensure_directory_exists(target_dir)
 
-        logger.info(f"Verschiebe in Nextcloud: {source_nc_path} -> {target_nc_path}")
+        logger.info(f"Verschiebe in Nextcloud: {source_nc_path} -> {final_target_path}")
         headers = {"Destination": target_url, "Overwrite": "F"}
         response = requests.request("MOVE", source_url, auth=self.auth, headers=headers)
         
         if response.status_code not in (201, 204):
             raise Exception(f"Fehler beim Verschieben ({response.status_code}): {response.text}")
-        return True
+        return True, final_target_path
 
     def ensure_directory_exists(self, nc_dir_path: str):
         """Erstellt rekursiv Unterordner in Nextcloud per WebDAV MKCOL, falls sie nicht existieren."""

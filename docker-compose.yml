@@ -8,13 +8,19 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - AI_PROVIDER=${AI_PROVIDER:-gemini}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://localhost:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY}
       - NEXTCLOUD_URL=${NEXTCLOUD_URL:-https://nextcloud.example.com}
       - NEXTCLOUD_USER=${NEXTCLOUD_USER}
       - NEXTCLOUD_PASSWORD=${NEXTCLOUD_PASSWORD}
       - TARGET_ROOT_FOLDER=${TARGET_ROOT_FOLDER:-/Dokumente}
       - INBOX_FOLDER=${INBOX_FOLDER:-/Posteingang}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     # Falls Nextcloud im selben Docker Compose / Netzwerk läuft, erstelle ein gemeinsames Netzwerk:
     # networks:
     #   - nextcloud-network

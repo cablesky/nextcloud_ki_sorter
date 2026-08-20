@@ -22,11 +22,17 @@
   <DonateLink/>
   <Requires/>
   <Config Name="Webhooks Port" Target="8000" Default="8000" Mode="tcp" Description="HTTP Webhook Port für Nextcloud Workflow Callbacks" Type="Port" Display="always" Required="true" Mask="false">8000</Config>
-  <Config Name="GEMINI_API_KEY" Target="GEMINI_API_KEY" Default="" Description="Dein Google Gemini API Key" Type="Variable" Display="always" Required="true" Mask="true"></Config>
-  <Config Name="GEMINI_MODEL" Target="GEMINI_MODEL" Default="gemini-2.5-flash" Description="Google Gemini Modell (z.B. gemini-2.5-flash)" Type="Variable" Display="always" Required="true" Mask="false">gemini-2.5-flash</Config>
+  <Config Name="AI Provider" Target="AI_PROVIDER" Default="gemini" Description="KI-Anbieter (gemini, ollama)" Type="Variable" Display="always" Required="true" Mask="false">gemini</Config>
+  <Config Name="GEMINI_API_KEY" Target="GEMINI_API_KEY" Default="" Description="Dein Google Gemini API Key" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="GEMINI_MODEL" Target="GEMINI_MODEL" Default="gemini-2.5-flash" Description="Google Gemini Modell (z.B. gemini-2.5-flash)" Type="Variable" Display="always" Required="false" Mask="false">gemini-2.5-flash</Config>
+  <Config Name="OLLAMA_BASE_URL" Target="OLLAMA_BASE_URL" Default="http://192.168.178.88:11434" Description="URL der lokalen Ollama Instanz" Type="Variable" Display="always" Required="false" Mask="false">http://192.168.178.88:11434</Config>
+  <Config Name="OLLAMA_MODEL" Target="OLLAMA_MODEL" Default="qwen2.5:7b" Description="Ollama Modell (z.B. qwen2.5:7b)" Type="Variable" Display="always" Required="false" Mask="false">qwen2.5:7b</Config>
+  <Config Name="OLLAMA_API_KEY" Target="OLLAMA_API_KEY" Default="" Description="Optionaler Bearer Token für Ollama / Lokale KI Proxy" Type="Variable" Display="always" Required="false" Mask="true"></Config>
   <Config Name="NEXTCLOUD_URL" Target="NEXTCLOUD_URL" Default="https://nextcloud.example.com" Description="Vollständige URL deiner Nextcloud Instanz" Type="Variable" Display="always" Required="true" Mask="false">https://nextcloud.example.com</Config>
   <Config Name="NEXTCLOUD_USER" Target="NEXTCLOUD_USER" Default="hermes" Description="Nextcloud Benutzername" Type="Variable" Display="always" Required="true" Mask="false">hermes</Config>
   <Config Name="NEXTCLOUD_PASSWORD" Target="NEXTCLOUD_PASSWORD" Default="" Description="Nextcloud App-Passwort" Type="Variable" Display="always" Required="true" Mask="true"></Config>
   <Config Name="TARGET_ROOT_FOLDER" Target="TARGET_ROOT_FOLDER" Default="/Dokumente" Description="Ziel-Stammordner in Nextcloud" Type="Variable" Display="always" Required="true" Mask="false">/Dokumente</Config>
   <Config Name="INBOX_FOLDER" Target="INBOX_FOLDER" Default="/Posteingang" Description="Posteingangs-Ordner in Nextcloud" Type="Variable" Display="always" Required="true" Mask="false">/Posteingang</Config>
+  <Config Name="TELEGRAM_BOT_TOKEN" Target="TELEGRAM_BOT_TOKEN" Default="" Description="Optionaler Telegram Bot Token für Benachrichtigungen" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="TELEGRAM_CHAT_ID" Target="TELEGRAM_CHAT_ID" Default="" Description="Optionaler Telegram Chat ID für Benachrichtigungen" Type="Variable" Display="always" Required="false" Mask="false"></Config>
 </Container>

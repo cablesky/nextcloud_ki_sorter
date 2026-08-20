@@ -59,11 +59,16 @@ class OCRProcessor:
             if result.returncode not in (0, 6): # 6 bedeutet: Datei ist bereits durchsuchbar
                 logger.warning(f"ocrmypdf Warnung/Fehler (Code {result.returncode}): {result.stderr}")
             
+            # Prüfen, ob Ausgabedatei tatsächlich erzeugt wurde
+            if not os.path.exists(output_pdf):
+                logger.warning(f"Ausgabedatei {output_pdf} wurde von ocrmypdf nicht erzeugt. Verwende Eingabedatei {input_pdf}.")
+                return input_pdf, text
+
             new_text = cls.extract_text(output_pdf)
             logger.info(f"OCR abgeschlossen. Extrahierte Textlänge: {len(new_text)} Zeichen.")
             return output_pdf, new_text
             
         except Exception as e:
             logger.error(f"Fehler bei ocrmypdf Ausführung: {e}")
-            # Fallback: Ursprünglichen Text zurückgeben
+            # Fallback: Ursprüngliche Datei & Text zurückgeben
             return input_pdf, text
