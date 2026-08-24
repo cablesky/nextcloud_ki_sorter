@@ -36,7 +36,11 @@ def sanitize_target_folder(folder: str, default_root: str = Config.TARGET_ROOT_F
 
 class ClassificationResult(BaseModel):
     target_folder: str = Field(
-        description="Der am besten passende Zielordner aus der vorgegebenen Ordnerstruktur."
+        description="Der am besten passende Zielordner aus der Ordnerstruktur ODER ein neu empfohlener Unterordner."
+    )
+    fallback_folder: str = Field(
+        default="",
+        description="Ein bereits existierender Ausweichordner aus der Ordnerliste, falls der neue Zielordner nicht erstellt wird."
     )
     suggested_filename: str = Field(
         description="Der neu formatierte Dateiname im Format YYYY-MM_Absender_Typ.pdf."
@@ -45,10 +49,23 @@ class ClassificationResult(BaseModel):
         default="Dokumenten-Klassifizierung",
         description="Kurze Begründung für die Einsortierung."
     )
+    is_new_folder: bool = Field(
+        default=False,
+        description="True, wenn target_folder ein neu vorgeschlagener Ordner ist, der noch nicht in Nextcloud existiert."
+    )
+    files_to_relocate: List[str] = Field(
+        default_factory=list,
+        description="Liste existierender Dateipfade (z.B. aus der Beispielsliste), die ebenfalls in den neuen Ordner umsortiert werden sollten."
+    )
 
     def sanitize(self, original_filename: str) -> "ClassificationResult":
         self.suggested_filename = sanitize_filename(self.suggested_filename, fallback=original_filename)
         self.target_folder = sanitize_target_folder(self.target_folder)
+        if self.fallback_folder:
+            self.fallback_folder = sanitize_target_folder(self.fallback_folder)
+        else:
+            parent_dir = os.path.dirname(self.target_folder)
+            self.fallback_folder = sanitize_target_folder(parent_dir)
         return self
 
 class BaseAIClassifier(abc.ABC):
@@ -66,11 +83,44 @@ class BaseAIClassifier(abc.ABC):
     def _build_folder_overview(self, folder_structure: Dict[str, List[str]]) -> str:
         folder_overview_lines = []
         for folder_path, sample_files in folder_structure.items():
-            # Max 2 Beispieldateien pro Ordner für minimale Token-Nutzung
-            samples = sample_files[:2] if sample_files else []
+            samples = sample_files[:3] if sample_files else []
             samples_str = ", ".join(samples) if samples else "keine"
             folder_overview_lines.append(f"- {folder_path} (Beispiele: {samples_str})")
         return "\n".join(folder_overview_lines)
+
+    def _build_prompt(
+        self, 
+        document_text: str, 
+        current_filename: str, 
+        folder_structure: Dict[str, List[str]], 
+        max_text_len: int = 6000
+    ) -> str:
+        folder_overview = self._build_folder_overview(folder_structure)
+        allow_new_str = "AKTIVIERT" if Config.ALLOW_NEW_FOLDERS else "DEAKTIVIERT"
+
+        return f"""
+Sortiere dieses Dokument in die Nextcloud-Ordnerstruktur unter '{Config.TARGET_ROOT_FOLDER}' ein.
+
+Aktueller Dateiname: {current_filename}
+
+Verfügbare Zielordner:
+{folder_overview}
+
+Dokumententext (OCR):
+---
+{document_text[:max_text_len]}
+---
+
+Regeln:
+1. Wähle den am besten passenden Zielordner aus der Liste oben.
+2. Ordner-Neuerstellung ist: {allow_new_str}.
+   - Falls AKTIVIERT und kein bestehender Ordner genau passt, darfst du einen neuen spezifischen Unterordner (z.B. '/Dokumente/Versicherungen/Zahnzusatz') vorschlagen. Setze dann 'is_new_folder': true.
+   - Wenn du einen neuen Ordner vorschlägst, nenne in 'fallback_folder' den am besten passenden bereits EXISTIERENDEN Ordner aus der Liste oben.
+   - Wenn du einen neuen Ordner vorschlägst, gib in 'files_to_relocate' vorhandene Dateipfade aus den Beispielen oben an, die auch in diesen neuen Ordner verschoben werden sollten.
+   - Falls ein bestehender Ordner gut passt oder DEAKTIVIERT ist, wähle einen bestehenden Ordner aus der Liste und setze 'is_new_folder': false und 'files_to_relocate': [].
+3. Generiere einen Dateinamen im Format 'YYYY-MM_Absender_Typ.pdf' (z.B. '2024-05_Lidl_Gutschein.pdf'). Verwende kurze Firmennamen ohne GmbH/AG.
+4. Gib das Ergebnis als JSON zurück (Format: target_folder, fallback_folder, suggested_filename, reasoning, is_new_folder, files_to_relocate).
+"""
 
 class GeminiClassifier(BaseAIClassifier):
     """Modul zur Dokumenten-Klassifizierung mittels Google Gemini API."""
@@ -90,26 +140,7 @@ class GeminiClassifier(BaseAIClassifier):
         folder_structure: Dict[str, List[str]]
     ) -> ClassificationResult:
         from google.genai import types
-        folder_overview = self._build_folder_overview(folder_structure)
-
-        prompt = f"""
-Sortiere dieses Dokument in die Nextcloud-Ordnerstruktur unter '{Config.TARGET_ROOT_FOLDER}' ein.
-
-Aktueller Dateiname: {current_filename}
-
-Verfügbare Zielordner:
-{folder_overview}
-
-Dokumententext (OCR):
----
-{document_text[:6000]}
----
-
-Regeln:
-1. Wähle den besten Zielordner aus der Liste. Bevorzuge spezifische Unterordner (z.B. /Dokumente/Gutscheine).
-2. Generiere einen Dateinamen im Format 'YYYY-MM_Absender_Typ.pdf' (z.B. '2024-05_Lidl_Gutschein.pdf'). Verwende kurze Firmennamen ohne GmbH/AG.
-3. Gib das Ergebnis im vorgegebenen JSON-Schema zurück.
-"""
+        prompt = self._build_prompt(document_text, current_filename, folder_structure, max_text_len=6000)
 
         logger.info(f"Sende Anfrage an Google Gemini ({self.model})...")
         
@@ -130,7 +161,7 @@ Regeln:
                 
                 result_json = response.text
                 result = ClassificationResult.model_validate_json(result_json).sanitize(current_filename)
-                logger.info(f"Gemini Ergebnis: Ordner='{result.target_folder}', Name='{result.suggested_filename}'")
+                logger.info(f"Gemini Ergebnis: Ordner='{result.target_folder}' (is_new={result.is_new_folder}), Name='{result.suggested_filename}'")
                 logger.info(f"KI-Begründung: {result.reasoning}")
                 return result
 
@@ -165,31 +196,7 @@ class OllamaClassifier(BaseAIClassifier):
         folder_structure: Dict[str, List[str]]
     ) -> ClassificationResult:
         import requests
-        folder_overview = self._build_folder_overview(folder_structure)
-
-        prompt = f"""
-Sortiere dieses Dokument in die Nextcloud-Ordnerstruktur ein.
-
-Aktueller Dateiname: {current_filename}
-
-Verfügbare Zielordner:
-{folder_overview}
-
-Dokumententext (OCR):
----
-{document_text[:3500]}
----
-
-Regeln:
-1. Wähle den besten Zielordner aus der Liste oben. Bevorzuge spezifische Unterordner (z.B. /Dokumente/Gutscheine) vor dem Hauptordner.
-2. Erstelle einen Dateinamen im Format 'YYYY-MM_Absender_Typ.pdf' (z.B. '2024-05_Lidl_Gutschein.pdf'). Verwende NUR kurze Firmennamen (z.B. 'Lidl' statt 'Lidl Digital GmbH').
-3. Gib das Ergebnis als JSON zurück:
-{{
-  "target_folder": "/Dokumente/Gutscheine",
-  "suggested_filename": "2024-05_Lidl_Gutschein.pdf",
-  "reasoning": "Gutschein von Lidl"
-}}
-"""
+        prompt = self._build_prompt(document_text, current_filename, folder_structure, max_text_len=3500)
 
         json_schema = ClassificationResult.model_json_schema()
         headers = {"Content-Type": "application/json"}
@@ -210,7 +217,7 @@ Regeln:
             "stream": False,
             "options": {
                 "temperature": 0.1,
-                "num_predict": 150
+                "num_predict": 250
             }
         }
 
@@ -243,17 +250,25 @@ Regeln:
                 logger.warning(f"Pydantic Validierung fehlgeschlagen ({parse_err}). Versuche flexibles JSON-Parsing...")
                 data = json.loads(content)
                 tf = data.get("target_folder") or data.get("targetFolder") or data.get("folder") or Config.TARGET_ROOT_FOLDER
+                fb = data.get("fallback_folder") or data.get("fallbackFolder") or Config.TARGET_ROOT_FOLDER
                 sf = data.get("suggested_filename") or data.get("suggestedFilename") or data.get("filename") or current_filename
                 re_val = data.get("reasoning") or data.get("reason") or "Klassifiziert durch lokale KI (Ollama)"
+                is_new = bool(data.get("is_new_folder", False))
+                relocate = data.get("files_to_relocate", [])
+                if not isinstance(relocate, list):
+                    relocate = []
                 result = ClassificationResult(
                     target_folder=tf,
+                    fallback_folder=fb,
                     suggested_filename=sf,
-                    reasoning=re_val
+                    reasoning=re_val,
+                    is_new_folder=is_new,
+                    files_to_relocate=relocate
                 ).sanitize(current_filename)
 
             if not result.reasoning:
                 result.reasoning = "Klassifiziert durch lokale KI (Ollama)"
-            logger.info(f"Ollama Ergebnis: Ordner='{result.target_folder}', Name='{result.suggested_filename}'")
+            logger.info(f"Ollama Ergebnis: Ordner='{result.target_folder}' (is_new={result.is_new_folder}), Name='{result.suggested_filename}'")
             return result
 
         except Exception as e:
@@ -273,3 +288,4 @@ def get_ai_classifier() -> BaseAIClassifier:
         return OllamaClassifier()
     else:
         raise ValueError(f"Unbekannter AI_PROVIDER: '{Config.AI_PROVIDER}'. Erlaubt sind: gemini, ollama")
+

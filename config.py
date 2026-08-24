@@ -29,6 +29,12 @@ class Config:
     # Inbox folder where raw PDFs are uploaded
     INBOX_FOLDER: str = os.getenv("INBOX_FOLDER", "/Posteingang")
 
+    # Ordnererstellung & Umsortierung
+    ALLOW_NEW_FOLDERS: bool = os.getenv("ALLOW_NEW_FOLDERS", "true").lower() == "true"
+    MIN_DOCUMENTS_FOR_NEW_FOLDER: int = int(os.getenv("MIN_DOCUMENTS_FOR_NEW_FOLDER", "3"))
+    AUTO_REORGANIZE_EXISTING: bool = os.getenv("AUTO_REORGANIZE_EXISTING", "true").lower() == "true"
+    FOLDER_CACHE_TTL: int = int(os.getenv("FOLDER_CACHE_TTL", "60"))
+
     # Server settings
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))

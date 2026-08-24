@@ -43,6 +43,12 @@ NEXTCLOUD_USER=hermes
 NEXTCLOUD_PASSWORD=dein_app_passwort
 TARGET_ROOT_FOLDER=/Dokumente
 INBOX_FOLDER=/Posteingang
+
+# Optionale erweiterte KI-Funktionen:
+ALLOW_NEW_FOLDERS=true             # Erlaubt der KI, neue Unterordner vorzuschlagen
+MIN_DOCUMENTS_FOR_NEW_FOLDER=3     # Neuer Ordner wird erst ab mind. 3 Dokumenten angelegt
+AUTO_REORGANIZE_EXISTING=true      # Umsortieren bestehender passender Alt-Dokumente in den neuen Ordner
+FOLDER_CACHE_TTL=60                # TTL-Cache in Sek. für Ordner-Scans (verhindert 500er bei Mehrfach-Upload)
 ```
 
 > 💡 **Tipp:** Erstelle in Nextcloud unter **Persönliche Einstellungen -> Sicherheit -> App-Passwörter** ein eigenes App-Passwort für diesen Service.
